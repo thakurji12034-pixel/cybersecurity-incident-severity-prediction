@@ -1,17 +1,19 @@
 import json
-
-import requests
-import streamlit as st
-import pandas as pd
-import plotly.express as px
+import time
+from datetime import datetime
 from pathlib import Path
 
-# Project paths
+import pandas as pd
+import plotly.express as px
+import requests
+import streamlit as st
+
+# Project directory paths
 BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = BASE_DIR / "outputs"
 MODEL_DIR = BASE_DIR / "models"
 
-# Backend API ka address
+# Backend FastAPI address
 API_URL = "http://127.0.0.1:8000"
 
 st.set_page_config(
@@ -64,42 +66,102 @@ div[data-testid="stMetricLabel"] p {
 """, unsafe_allow_html=True)
 
 
-def api_get(path):
-    """Backend API se GET request. Fail hone par None."""
+def call_api(method: str, path: str, json_body: dict = None) -> dict:
+    """
+    Send an HTTP request to the backend API, measure response time,
+    and log every call to st.session_state['api_calls'].
+    Never crashes when the API is offline.
+    """
+    if "api_calls" not in st.session_state:
+        st.session_state["api_calls"] = []
+
+    method_upper = method.upper()
+    url = f"{API_URL}{path}"
+    start_time = time.perf_counter()
+
+    ok = False
+    status_code = None
+    data = None
+    error = None
+
     try:
-        response = requests.get(f"{API_URL}{path}", timeout=5)
-        response.raise_for_status()
-        return response.json()
-    except Exception:
-        return None
+        if method_upper == "GET":
+            response = requests.get(url, timeout=10)
+        elif method_upper == "POST":
+            response = requests.post(url, json=json_body, timeout=30)
+        else:
+            response = requests.request(method_upper, url, json=json_body, timeout=10)
+
+        status_code = response.status_code
+        ok = response.ok
+        try:
+            data = response.json()
+        except Exception:
+            data = response.text
+
+        if not ok:
+            error = f"HTTP {status_code}: {response.text}"
+
+    except Exception as exc:
+        ok = False
+        status_code = None
+        data = None
+        error = str(exc)
+
+    duration_ms = round((time.perf_counter() - start_time) * 1000, 2)
+
+    # Append call details to session state log
+    st.session_state["api_calls"].append({
+        "time": datetime.now().strftime("%H:%M:%S"),
+        "method": method_upper,
+        "endpoint": path,
+        "status": status_code if status_code is not None else "Offline",
+        "ms": duration_ms
+    })
+
+    # Keep the latest 100 calls in memory
+    if len(st.session_state["api_calls"]) > 100:
+        st.session_state["api_calls"] = st.session_state["api_calls"][-100:]
+
+    return {
+        "ok": ok,
+        "status_code": status_code,
+        "ms": duration_ms,
+        "data": data,
+        "error": error
+    }
 
 
 @st.cache_data
-def load_test_rows(path, n):
+def load_test_rows(path: str, n: int) -> pd.DataFrame:
+    """Load preview rows from the test CSV file with caching."""
     return pd.read_csv(path, nrows=n, low_memory=False)
 
 
-# Sidebar
+# Sidebar Header & Navigation
 st.sidebar.markdown("# 🛡️ CyberShield")
 st.sidebar.caption("INCIDENT INTELLIGENCE PLATFORM")
 page = st.sidebar.radio(
     "NAVIGATION",
     ["Overview", "Model Analytics", "Live Prediction",
-     "Incident Explorer", "About Project"]
+     "API Monitor", "Incident Explorer", "About Project"]
 )
 st.sidebar.divider()
 st.sidebar.markdown("**System status**")
 st.sidebar.success("Dashboard interface online")
 
-health = api_get("/health")
-api_online = bool(health and health.get("model_loaded"))
+# Check backend API health via call_api
+health_res = call_api("GET", "/health")
+health_data = health_res["data"] if health_res["ok"] and isinstance(health_res["data"], dict) else {}
+api_online = bool(health_res["ok"] and health_data.get("model_loaded"))
+
 if api_online:
     st.sidebar.success("Backend API online")
 else:
     st.sidebar.error("Backend API offline")
     st.sidebar.caption("Start it with: python -m uvicorn api:app --port 8000")
 
-# Header
+# Main Header
 st.markdown(
     "<p style='color:#38d9ff; letter-spacing:3px;'>CYBERSECURITY / MACHINE LEARNING</p>",
     unsafe_allow_html=True
@@ -109,13 +171,13 @@ st.markdown(
     "Explore incident patterns and evaluate machine-learning predictions."
 )
 
-# Model comparison results: pehle API se, nahi mile to local CSV se
+# Load metrics: pehle backend API se, fallback local CSV se
 comparison = None
 data_source = "local file"
 
-metrics_data = api_get("/metrics")
-if metrics_data:
-    comparison = pd.DataFrame(metrics_data)
+metrics_res = call_api("GET", "/metrics")
+if metrics_res["ok"] and isinstance(metrics_res["data"], list):
+    comparison = pd.DataFrame(metrics_res["data"])
     data_source = "backend API"
 else:
     comparison_path = OUTPUT_DIR / "model_comparison.csv"
@@ -125,6 +187,9 @@ else:
         except Exception:
             comparison = None
 
+# ==============================================================================
+# Page 1: Overview
+# ==============================================================================
 if page == "Overview":
     st.markdown("### Security Operations Overview")
     st.caption("Prototype dashboard • Microsoft GUIDE dataset project")
@@ -136,7 +201,6 @@ if page == "Overview":
         best_acc = "N/A"
 
     c1, c2, c3, c4 = st.columns(4)
-
     c1.metric("ML Models", "02")
     c2.metric("Best Recorded Accuracy", best_acc)
     c3.metric("Incident Classes", "03")
@@ -172,6 +236,9 @@ if page == "Overview":
             else:
                 st.caption(f"{label}: image not available")
 
+# ==============================================================================
+# Page 2: Model Analytics
+# ==============================================================================
 elif page == "Model Analytics":
     st.markdown("### Machine Learning Analytics")
     st.write("Review the saved evaluation results from the model training stage.")
@@ -233,6 +300,9 @@ elif page == "Model Analytics":
         with st.expander("View classification report"):
             st.text(report_path.read_text(encoding="utf-8", errors="replace"))
 
+# ==============================================================================
+# Page 3: Live Prediction
+# ==============================================================================
 elif page == "Live Prediction":
     st.markdown("### Live Prediction (Frontend → API → Model)")
     st.write(
@@ -262,11 +332,25 @@ elif page == "Live Prediction":
 
         if st.button("Predict using API", type="primary"):
             payload = {"record": json.loads(record_df.to_json(orient="records"))[0]}
-            try:
-                response = requests.post(f"{API_URL}/predict", json=payload, timeout=30)
-                response.raise_for_status()
-                result = response.json()
+            res = call_api("POST", "/predict", json_body=payload)
 
+            # Display API call status code and response duration
+            col_s1, col_s2 = st.columns(2)
+            col_s1.metric("Status code", res["status_code"] if res["status_code"] is not None else "Offline")
+            col_s2.metric("Response time", f"{res['ms']:.1f} ms")
+
+            # Expanders showing exact request and response payloads
+            with st.expander("Request sent to API"):
+                st.json(payload)
+
+            with st.expander("Response received from API"):
+                if res["data"] is not None:
+                    st.json(res["data"])
+                else:
+                    st.json({"error": res["error"]})
+
+            if res["ok"] and res["data"]:
+                result = res["data"]
                 st.metric("Predicted incident grade", result["prediction"])
 
                 probs = pd.DataFrame({
@@ -294,9 +378,151 @@ elif page == "Live Prediction":
                     "This is a demo prediction for one record, "
                     "not a performance evaluation."
                 )
-            except Exception as error:
-                st.error(f"API request failed: {error}")
+            else:
+                st.error(f"API request failed: {res['error']}")
 
+# ==============================================================================
+# Page 4: API Monitor
+# ==============================================================================
+elif page == "API Monitor":
+    st.markdown("### API Monitor")
+    st.caption("Live inspection of FastAPI endpoints, interactive requests, and call logs.")
+
+    # 3.g Show clear error with exact startup command if API is offline
+    if not api_online:
+        st.error(
+            "Backend API is offline. Open a new terminal and run: "
+            "python -m uvicorn api:app --port 8000"
+        )
+
+    # 3.a Four metric cards: API status, Base URL, Model loaded, Number of endpoints
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("API status", "online" if api_online else "offline")
+    c2.metric("Base URL", API_URL)
+    c3.metric("Model loaded", "yes" if (health_data.get("model_loaded")) else "no")
+    c4.metric("Number of endpoints", "5")
+
+    # 3.b Table of all endpoints
+    st.markdown("#### Endpoints")
+    endpoints_df = pd.DataFrame([
+        {"Method": "GET", "Path": "/health", "Purpose": "Check whether API is running and model is loaded"},
+        {"Method": "GET", "Path": "/metrics", "Purpose": "Return model comparison and evaluation metrics"},
+        {"Method": "POST", "Path": "/predict", "Purpose": "Take an incident record and return predicted grade and probabilities"},
+        {"Method": "GET", "Path": "/logs", "Purpose": "Return recorded calls as JSON, newest first"},
+        {"Method": "GET", "Path": "/docs", "Purpose": "Interactive Swagger UI documentation"},
+    ])
+    st.dataframe(endpoints_df, width="stretch", hide_index=True)
+
+    # 3.c Button to open Swagger docs
+    st.link_button("Open Swagger docs", f"{API_URL}/docs")
+
+    # 3.d Try the API section with three parts
+    st.markdown("### Try the API")
+
+    # Part 1: GET /health
+    st.markdown("#### GET /health")
+    if st.button("Call GET /health", key="try_health_btn"):
+        st.session_state["try_health_res"] = call_api("GET", "/health")
+
+    if "try_health_res" in st.session_state:
+        h_res = st.session_state["try_health_res"]
+        col_h1, col_h2 = st.columns(2)
+        col_h1.metric("Status code", h_res["status_code"] if h_res["status_code"] is not None else "Offline")
+        col_h2.metric("Response time", f"{h_res['ms']:.1f} ms")
+        if h_res["data"] is not None:
+            st.json(h_res["data"])
+        else:
+            st.error(f"Error: {h_res['error']}")
+
+    # Part 2: GET /metrics
+    st.markdown("#### GET /metrics")
+    if st.button("Call GET /metrics", key="try_metrics_btn"):
+        st.session_state["try_metrics_res"] = call_api("GET", "/metrics")
+
+    if "try_metrics_res" in st.session_state:
+        m_res = st.session_state["try_metrics_res"]
+        col_m1, col_m2 = st.columns(2)
+        col_m1.metric("Status code", m_res["status_code"] if m_res["status_code"] is not None else "Offline")
+        col_m2.metric("Response time", f"{m_res['ms']:.1f} ms")
+        if m_res["data"] is not None:
+            st.json(m_res["data"])
+            if isinstance(m_res["data"], list):
+                st.dataframe(pd.DataFrame(m_res["data"]), width="stretch", hide_index=True)
+        else:
+            st.error(f"Error: {m_res['error']}")
+
+    # Part 3: POST /predict
+    st.markdown("#### POST /predict")
+    test_csv_path = BASE_DIR / "dataset" / "GUIDE_Test.csv"
+    if test_csv_path.exists():
+        test_samples = load_test_rows(str(test_csv_path), 200)
+        selected_idx = st.number_input(
+            "Pick a record (0 to 199)",
+            min_value=0,
+            max_value=len(test_samples) - 1,
+            value=0,
+            step=1,
+            key="try_predict_idx"
+        )
+        sample_record_df = test_samples.iloc[[int(selected_idx)]]
+
+        if st.button("Send to API", key="try_predict_btn", type="primary"):
+            record_payload = {"record": json.loads(sample_record_df.to_json(orient="records"))[0]}
+            p_res = call_api("POST", "/predict", json_body=record_payload)
+            st.session_state["try_predict_req_body"] = record_payload
+            st.session_state["try_predict_response"] = p_res
+
+        if "try_predict_response" in st.session_state:
+            req_body = st.session_state.get("try_predict_req_body", {})
+            p_res = st.session_state["try_predict_response"]
+
+            with st.expander("Request body sent to API"):
+                st.json(req_body)
+
+            col_p1, col_p2 = st.columns(2)
+            col_p1.metric("Status code", p_res["status_code"] if p_res["status_code"] is not None else "Offline")
+            col_p2.metric("Response time", f"{p_res['ms']:.1f} ms")
+
+            if p_res["data"] is not None:
+                st.json(p_res["data"])
+                if isinstance(p_res["data"], dict) and "prediction" in p_res["data"]:
+                    st.metric("Predicted grade", p_res["data"]["prediction"])
+            else:
+                st.error(f"Error: {p_res['error']}")
+    else:
+        st.error("GUIDE_Test.csv was not found in dataset folder.")
+
+    # 3.e Table "Calls made by the dashboard" from st.session_state["api_calls"] (newest first)
+    st.markdown("### Calls made by the dashboard")
+    st.caption("All API calls initiated by this Streamlit session (newest first).")
+    calls = st.session_state.get("api_calls", [])
+    if calls:
+        dashboard_logs_df = pd.DataFrame(calls[::-1])
+        st.dataframe(dashboard_logs_df, width="stretch", hide_index=True)
+    else:
+        st.info("No dashboard API calls recorded yet.")
+
+    # 3.f Table "Requests received by the backend" fetched from GET /logs with Refresh button
+    st.markdown("### Requests received by the backend")
+    st.caption("Requests recorded in-memory by FastAPI middleware (newest first).")
+
+    if st.button("Refresh", key="btn_refresh_backend_logs"):
+        pass  # Clicking triggers Streamlit rerun and re-fetches GET /logs
+
+    backend_logs_res = call_api("GET", "/logs")
+    if backend_logs_res["ok"] and isinstance(backend_logs_res["data"], list):
+        backend_logs = backend_logs_res["data"]
+        if backend_logs:
+            backend_logs_df = pd.DataFrame(backend_logs)
+            st.dataframe(backend_logs_df, width="stretch", hide_index=True)
+        else:
+            st.info("No requests received by the backend yet.")
+    else:
+        st.warning("Could not fetch backend logs. Backend API is offline.")
+
+# ==============================================================================
+# Page 5: Incident Explorer
+# ==============================================================================
 elif page == "Incident Explorer":
     st.markdown("### Incident Explorer")
     st.write("Preview a small sample of records without loading the entire large CSV.")
@@ -341,6 +567,9 @@ elif page == "Incident Explorer":
     else:
         st.error("GUIDE_Train.csv was not found in the dataset folder.")
 
+# ==============================================================================
+# Page 6: About Project
+# ==============================================================================
 elif page == "About Project":
     st.markdown("### About CyberShield")
     st.write(
@@ -351,7 +580,7 @@ elif page == "About Project":
     st.markdown("#### Architecture")
     st.markdown("""
     - **Frontend:** Streamlit dashboard (`app.py`)
-    - **Backend:** FastAPI service (`api.py`) with endpoints `/health`, `/metrics`, `/predict`
+    - **Backend:** FastAPI service (`api.py`) with endpoints `/health`, `/metrics`, `/predict`, `/logs`
     - **ML layer:** scikit-learn pipelines saved with joblib (`main.py` trains them)
     - The frontend sends a record as JSON to `/predict`; the backend loads the saved model and returns the predicted grade and class probabilities.
     """)
@@ -374,6 +603,7 @@ elif page == "About Project":
         "outputs, not proof that an incident is malicious or harmless."
     )
 
+# Footer
 st.divider()
 st.markdown(
     "<p class='small-note'>CyberShield Academic Prototype · "

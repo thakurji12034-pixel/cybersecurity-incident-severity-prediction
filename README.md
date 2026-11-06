@@ -22,8 +22,9 @@ Security Operations Centers receive a very large number of alerts, and many of t
  Streamlit dashboard (app.py)        FastAPI backend (api.py)          Saved model
  frontend, port 8501        --HTTP/JSON-->   port 8000          -->   models/random_forest.joblib
  Overview, Model Analytics,         GET  /health
- Live Prediction, Explorer          GET  /metrics
-                                    POST /predict
+ Live Prediction, API Monitor,      GET  /metrics
+ Incident Explorer, About Project   POST /predict
+                                    GET  /logs
                       ^
                       |  main.py trains the models and writes outputs/ and models/
 ```
@@ -136,6 +137,7 @@ Open `http://localhost:8501` for the dashboard and `http://127.0.0.1:8000/docs` 
 | GET | `/health` | Shows whether the API is running and the model is loaded |
 | GET | `/metrics` | Returns the model comparison table as JSON |
 | POST | `/predict` | Takes one incident record and returns the predicted grade and class probabilities |
+| GET | `/logs` | Returns recorded requests as JSON, newest first |
 
 Example request body for `/predict`. Fields that are left out are treated as missing values:
 
@@ -169,6 +171,7 @@ The values above only show the format, they are not real output. The dashboard's
 - **Overview:** key numbers, model comparison table and saved charts
 - **Model Analytics:** metric chart, confusion matrices, feature importance and the classification report
 - **Live Prediction:** sends a test record to the API and shows the predicted grade and probabilities
+- **API Monitor:** inspects API status, endpoints table, Swagger link, interactive test calls, dashboard call logs, and backend logs
 - **Incident Explorer:** preview of rows from the training file
 - **About Project:** short description and architecture
 

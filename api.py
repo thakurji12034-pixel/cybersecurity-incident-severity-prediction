@@ -1,10 +1,13 @@
+import time
+from collections import deque
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict
 
 import joblib
 import numpy as np
 import pandas as pd
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -12,7 +15,7 @@ MODEL_FILE = BASE_DIR / "models" / "random_forest.joblib"
 COLUMNS_FILE = BASE_DIR / "models" / "feature_columns.joblib"
 METRICS_FILE = BASE_DIR / "outputs" / "model_comparison.csv"
 
-# main.py ke jaisa hi: ye columns category (text) ki tarah treat hote hain
+# Categorical columns treated as strings (same as main.py)
 ID_AS_CATEGORY = ["OrgId", "DetectorId", "AlertTitle",
                   "ApplicationId", "OAuthApplicationId",
                   "ApplicationName", "OSFamily", "OSVersion",
@@ -20,7 +23,35 @@ ID_AS_CATEGORY = ["OrgId", "DetectorId", "AlertTitle",
 
 app = FastAPI(title="Cyber Incident Severity API", version="1.0")
 
-# Model start hote hi ek baar load hota hai
+# In-memory log for recent requests (keep last 50 calls)
+request_logs = deque(maxlen=50)
+
+# Endpoints that are not recorded in the request logs
+IGNORED_PATHS = {"/logs", "/docs", "/openapi.json", "/favicon.ico"}
+
+
+@app.middleware("http")
+async def record_requests(request: Request, call_next):
+    """Record request method, path, status, and duration in ms."""
+    start_time = time.perf_counter()
+    response = await call_next(request)
+    duration_ms = round((time.perf_counter() - start_time) * 1000, 2)
+
+    # Exclude internal /docs /logs calls from the backend log
+    clean_path = request.url.path.rstrip("/") if request.url.path != "/" else "/"
+    if request.url.path not in IGNORED_PATHS and clean_path not in IGNORED_PATHS:
+        request_logs.append({
+            "time": datetime.now().strftime("%H:%M:%S"),
+            "method": request.method,
+            "path": request.url.path,
+            "status_code": response.status_code,
+            "duration_ms": duration_ms
+        })
+
+    return response
+
+
+# Load the trained model once at startup
 model = None
 feature_columns = None
 if MODEL_FILE.exists() and COLUMNS_FILE.exists():
@@ -29,11 +60,11 @@ if MODEL_FILE.exists() and COLUMNS_FILE.exists():
 
 
 class PredictRequest(BaseModel):
-    record: Dict[str, Any]   # ek incident record, {"column": value, ...}
+    record: Dict[str, Any]   # Single incident record: {"column": value, ...}
 
 
 def to_text(v):
-    """123 aur 123.0 ko same text 123 banao. Missing 'nan' ban jata hai."""
+    """Normalize floats and missing values into consistent strings."""
     if pd.isna(v):
         return "nan"
     try:
@@ -44,16 +75,17 @@ def to_text(v):
 
 
 def prepare_record(record: dict) -> pd.DataFrame:
+    """Preprocess one raw record to match model training features."""
     row = pd.DataFrame([record])
 
-    # time features (main.py jaisa)
+    # Extract time features from Timestamp
     if "Timestamp" in row.columns:
         t = pd.to_datetime(row["Timestamp"], errors="coerce", utc=True)
         row["Hour"] = t.dt.hour
         row["DayOfWeek"] = t.dt.day_of_week
         row["Month"] = t.dt.month
 
-    # sirf wahi columns, wahi order me, jo training me the
+    # Keep exactly the columns and order used in training
     X = row.reindex(columns=feature_columns)
     X = X.astype(object).where(X.notna(), np.nan)
 
@@ -85,6 +117,12 @@ def metrics():
     if not METRICS_FILE.exists():
         raise HTTPException(status_code=404, detail="model_comparison.csv not found. Run main.py first.")
     return pd.read_csv(METRICS_FILE).to_dict(orient="records")
+
+
+@app.get("/logs")
+def get_logs():
+    """Return recorded requests, newest first."""
+    return list(reversed(request_logs))
 
 
 @app.post("/predict")
