@@ -1,0 +1,26 @@
+services:
+  # 1. Flask REST API Backend
+  - type: web
+    name: cybersecurity-incident-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn -w 2 -b 0.0.0.0:$PORT api:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: PORT
+        value: 10000
+
+  # 2. Streamlit Frontend Dashboard
+  - type: web
+    name: cybersecurity-incident-dashboard
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: API_URL
+        value: https://cybersecurity-incident-api.onrender.com

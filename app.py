@@ -1,4 +1,5 @@
 import json
+import os
 import time
 from datetime import datetime
 from pathlib import Path
@@ -13,8 +14,8 @@ BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = BASE_DIR / "outputs"
 MODEL_DIR = BASE_DIR / "models"
 
-# Backend Flask API address
-API_URL = "http://127.0.0.1:8000"
+# Backend Flask API address (reads from environment for Render/production deployment)
+API_URL = os.environ.get("API_URL", "http://127.0.0.1:10000").rstrip("/")
 
 st.set_page_config(
     page_title="CyberShield | Incident Intelligence",
@@ -160,7 +161,7 @@ health_data = health_res["data"] if health_res["ok"] and isinstance(health_res["
 api_online = bool(health_res["ok"] and health_data.get("model_loaded"))
 
 if api_online:
-    st.sidebar.success("Backend API online (Flask :8000)")
+    st.sidebar.success(f"Backend API online ({API_URL})")
 else:
     st.sidebar.error("Backend API offline")
     st.sidebar.caption("Start it with: python api.py")
@@ -314,6 +315,8 @@ elif page == "Live Prediction":
     )
 
     test_path = BASE_DIR / "dataset" / "GUIDE_Test.csv"
+    if not test_path.exists():
+        test_path = BASE_DIR / "dataset" / "sample_test.csv"
 
     if not api_online:
         st.error(
@@ -321,7 +324,7 @@ elif page == "Live Prediction":
             "python api.py"
         )
     elif not test_path.exists():
-        st.error("GUIDE_Test.csv was not found in the dataset folder.")
+        st.error("No test dataset (GUIDE_Test.csv or sample_test.csv) found in dataset folder.")
     else:
         rows_df = load_test_rows(str(test_path), 200)
         index = st.number_input(
@@ -501,6 +504,8 @@ elif page == "API Monitor":
     # Part 3: POST /predict
     st.markdown("#### POST /predict")
     test_csv_path = BASE_DIR / "dataset" / "GUIDE_Test.csv"
+    if not test_csv_path.exists():
+        test_csv_path = BASE_DIR / "dataset" / "sample_test.csv"
     if test_csv_path.exists():
         test_samples = load_test_rows(str(test_csv_path), 200)
         selected_idx = st.number_input(
@@ -578,6 +583,8 @@ elif page == "Incident Explorer":
     st.write("Preview a small sample of records without loading the entire large CSV.")
 
     data_path = BASE_DIR / "dataset" / "GUIDE_Train.csv"
+    if not data_path.exists():
+        data_path = BASE_DIR / "dataset" / "sample_train.csv"
 
     if data_path.exists():
         rows = st.slider("Number of sample rows", 5, 100, 20, step=5)

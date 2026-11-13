@@ -195,8 +195,10 @@ The backend is implemented using **Flask** and exposes REST endpoints on `http:/
 Cybersecurity-Incident-Severity-Prediction/
 │
 ├── dataset/
-│   ├── GUIDE_Train.csv
-│   ├── GUIDE_Test.csv
+│   ├── GUIDE_Train.csv                # Local training dataset (excluded from git)
+│   ├── GUIDE_Test.csv                 # Local test dataset (excluded from git)
+│   ├── sample_train.csv               # Sample training data for cloud deployment
+│   ├── sample_test.csv                # Sample test data for cloud deployment
 │   └── GUIDE_Test_Queue_Rankings.csv
 │
 ├── models/
@@ -223,6 +225,7 @@ Cybersecurity-Incident-Severity-Prediction/
 ├── api.py               # Flask REST API backend
 ├── app.py               # Streamlit frontend dashboard
 ├── test_system.py       # Automated unit & integration tests
+├── render.yaml          # Render multi-service deployment blueprint
 ├── PROGRESS_REPORT.md   # Academic project progress report
 ├── TESTING_REPORT.md    # Testing & validation report
 ├── requirements.txt     # Clean minimal dependencies
@@ -271,7 +274,7 @@ Open Terminal 1:
 ```powershell
 python api.py
 ```
-*The Flask API starts at `http://127.0.0.1:8000`.*
+*The Flask API starts at `http://127.0.0.1:10000` (or on the port configured in `$PORT`).*
 
 ### Step 4: Start the Streamlit Frontend Dashboard
 Open Terminal 2:
@@ -284,8 +287,30 @@ streamlit run app.py
 
 ## 14. Dashboard Pages
 - **Overview:** Summary metrics, best model performance, and saved visualization charts.
-- **Model Analytics:** Interactive metric selector, confusion matrices, and feature importance.
-- **Live Prediction:** Frontend-to-Backend prediction interface using real records from `GUIDE_Test.csv`.
+- **Model Analytics:** Interactive metric selector, confusion matrices, and feature reports.
+- **Live Prediction:** Frontend-to-Backend prediction interface using real incident records.
 - **API Monitor:** Health status, endpoint directory, interactive test calls, and real-time backend logs.
 - **Incident Explorer:** Quick preview of incident records with class distribution charts.
 - **About Project:** Architecture details, project objectives, and model information.
+
+---
+
+## 15. Deployment on Render
+
+This project is fully configured for zero-friction cloud deployment on [Render](https://render.com) using `render.yaml` or manual Web Service creation.
+
+### Service 1: Flask Backend API (`cybersecurity-incident-api`)
+- **Environment:** `Python`
+- **Build Command:** `pip install -r requirements.txt`
+- **Start Command:** `gunicorn -w 2 -b 0.0.0.0:$PORT api:app`
+- **Environment Variables:**
+  - `PORT`: `10000`
+  - `PYTHON_VERSION`: `3.11.9`
+
+### Service 2: Streamlit Frontend Dashboard (`cybersecurity-incident-dashboard`)
+- **Environment:** `Python`
+- **Build Command:** `pip install -r requirements.txt`
+- **Start Command:** `streamlit run app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true`
+- **Environment Variables:**
+  - `PYTHON_VERSION`: `3.11.9`
+  - `API_URL`: `https://cybersecurity-incident-api.onrender.com` *(Replace with your actual deployed Flask API URL)*

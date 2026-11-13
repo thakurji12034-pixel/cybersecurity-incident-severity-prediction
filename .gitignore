@@ -10,8 +10,8 @@ __pycache__/
 *$py.class
 .pytest_cache/
 
-# Datasets (large files excluded from git)
-dataset/
+# Datasets (large original GUIDE files excluded from git)
+dataset/GUIDE_*.csv
 
 # Temporary and log files
 *.tmp
