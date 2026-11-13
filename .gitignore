@@ -1,5 +1,21 @@
+# Virtual Environments
 cyber_env/
-dataset/
+.venv/
+env/
+venv/
+
+# Python bytecode & cache
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Datasets (large files excluded from git)
+dataset/
+
+# Temporary and log files
+*.tmp
+*.log
 *.zip
+.DS_Store
+Thumbs.db

@@ -13,7 +13,7 @@ BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = BASE_DIR / "outputs"
 MODEL_DIR = BASE_DIR / "models"
 
-# Backend FastAPI address
+# Backend Flask API address
 API_URL = "http://127.0.0.1:8000"
 
 st.set_page_config(
@@ -68,7 +68,7 @@ div[data-testid="stMetricLabel"] p {
 
 def call_api(method: str, path: str, json_body: dict = None) -> dict:
     """
-    Send an HTTP request to the backend API, measure response time,
+    Send an HTTP request to the backend Flask API, measure response time,
     and log every call to st.session_state['api_calls'].
     Never crashes when the API is offline.
     """
@@ -138,6 +138,10 @@ def load_test_rows(path: str, n: int) -> pd.DataFrame:
     return pd.read_csv(path, nrows=n, low_memory=False)
 
 
+# Initialize session state for prediction history
+if "history" not in st.session_state:
+    st.session_state["history"] = []
+
 # Sidebar Header & Navigation
 st.sidebar.markdown("# 🛡️ CyberShield")
 st.sidebar.caption("INCIDENT INTELLIGENCE PLATFORM")
@@ -156,10 +160,10 @@ health_data = health_res["data"] if health_res["ok"] and isinstance(health_res["
 api_online = bool(health_res["ok"] and health_data.get("model_loaded"))
 
 if api_online:
-    st.sidebar.success("Backend API online")
+    st.sidebar.success("Backend API online (Flask :8000)")
 else:
     st.sidebar.error("Backend API offline")
-    st.sidebar.caption("Start it with: python -m uvicorn api:app --port 8000")
+    st.sidebar.caption("Start it with: python api.py")
 
 # Main Header
 st.markdown(
@@ -171,7 +175,7 @@ st.markdown(
     "Explore incident patterns and evaluate machine-learning predictions."
 )
 
-# Load metrics: pehle backend API se, fallback local CSV se
+# Load metrics: from backend API first, fallback to local CSV
 comparison = None
 data_source = "local file"
 
@@ -217,7 +221,7 @@ if page == "Overview":
     with left:
         st.markdown("#### Model performance comparison")
         if comparison is not None and not comparison.empty:
-            st.dataframe(comparison, width="stretch", hide_index=True)
+            st.dataframe(comparison, use_container_width=True, hide_index=True)
             st.caption(f"Data source: {data_source}")
         else:
             st.warning("Model comparison was not found. Run main.py first.")
@@ -232,7 +236,7 @@ if page == "Overview":
             image_path = OUTPUT_DIR / filename
             if image_path.exists():
                 st.caption(label)
-                st.image(str(image_path), width="stretch")
+                st.image(str(image_path), use_container_width=True)
             else:
                 st.caption(f"{label}: image not available")
 
@@ -244,7 +248,7 @@ elif page == "Model Analytics":
     st.write("Review the saved evaluation results from the model training stage.")
 
     if comparison is not None and not comparison.empty:
-        st.dataframe(comparison, width="stretch", hide_index=True)
+        st.dataframe(comparison, use_container_width=True, hide_index=True)
         st.caption(f"Data source: {data_source}")
 
         numeric_cols = comparison.select_dtypes(include="number").columns.tolist()
@@ -269,7 +273,7 @@ elif page == "Model Analytics":
                 plot_bgcolor="#0b1728",
                 showlegend=False
             )
-            st.plotly_chart(fig, width="stretch")
+            st.plotly_chart(fig, use_container_width=True)
         else:
             st.caption(
                 "The saved comparison file does not have the expected model-name "
@@ -281,11 +285,10 @@ elif page == "Model Analytics":
     st.markdown("#### Confusion matrices and reports")
     image_cols = st.columns(2)
     image_files = [
-        ("Random Forest confusion matrix", "random_forest_confusion_matrix.png"),
+        ("Random Forest confusion matrix", "confusion_matrix.png"),
         ("Logistic Regression confusion matrix", "logistic_regression_confusion_matrix.png"),
         ("Overall model comparison", "model_comparison.png"),
         ("Incident class distribution", "class_distribution.png"),
-        ("Random Forest top features", "rf_feature_importance.png"),
     ]
 
     for i, (label, filename) in enumerate(image_files):
@@ -293,7 +296,7 @@ elif page == "Model Analytics":
         if path.exists():
             with image_cols[i % 2]:
                 st.caption(label)
-                st.image(str(path), width="stretch")
+                st.image(str(path), use_container_width=True)
 
     report_path = OUTPUT_DIR / "model_reports.txt"
     if report_path.exists():
@@ -304,18 +307,18 @@ elif page == "Model Analytics":
 # Page 3: Live Prediction
 # ==============================================================================
 elif page == "Live Prediction":
-    st.markdown("### Live Prediction (Frontend → API → Model)")
+    st.markdown("### Live Prediction (Frontend → Flask API → Model)")
     st.write(
         "Pick a record from the test file. The dashboard sends it to the "
-        "backend API, which returns the predicted incident grade."
+        "Flask backend API, which returns the predicted incident grade."
     )
 
     test_path = BASE_DIR / "dataset" / "GUIDE_Test.csv"
 
     if not api_online:
         st.error(
-            "Backend API is offline. Open a new terminal and run: "
-            "python -m uvicorn api:app --port 8000"
+            "Backend API is offline. Open a terminal and run: "
+            "python api.py"
         )
     elif not test_path.exists():
         st.error("GUIDE_Test.csv was not found in the dataset folder.")
@@ -328,18 +331,20 @@ elif page == "Live Prediction":
         record_df = rows_df.iloc[[int(index)]]
 
         with st.expander("View selected record"):
-            st.dataframe(record_df.astype(str).T, width="stretch")
+            st.dataframe(record_df.astype(str).T, use_container_width=True)
 
-        if st.button("Predict using API", type="primary"):
-            payload = {"record": json.loads(record_df.to_json(orient="records"))[0]}
+        if st.button("Predict using Flask API", type="primary"):
+            # Clean record of NaNs for JSON compliance
+            raw_record = record_df.iloc[0].to_dict()
+            clean_record = {k: v for k, v in raw_record.items() if pd.notna(v)}
+            payload = {"record": clean_record}
+
             res = call_api("POST", "/predict", json_body=payload)
 
-            # Display API call status code and response duration
             col_s1, col_s2 = st.columns(2)
             col_s1.metric("Status code", res["status_code"] if res["status_code"] is not None else "Offline")
             col_s2.metric("Response time", f"{res['ms']:.1f} ms")
 
-            # Expanders showing exact request and response payloads
             with st.expander("Request sent to API"):
                 st.json(payload)
 
@@ -351,72 +356,114 @@ elif page == "Live Prediction":
 
             if res["ok"] and res["data"]:
                 result = res["data"]
-                st.metric("Predicted incident grade", result["prediction"])
+                predicted_grade = result.get("prediction", "Unknown")
 
-                probs = pd.DataFrame({
-                    "Class": list(result["probabilities"].keys()),
-                    "Probability": list(result["probabilities"].values())
-                })
-                fig = px.bar(
-                    probs, x="Class", y="Probability", color="Class",
-                    title="Class probabilities", template="plotly_dark"
-                )
-                fig.update_layout(
-                    paper_bgcolor="#0b1728",
-                    plot_bgcolor="#0b1728",
-                    showlegend=False,
-                    yaxis_range=[0, 1]
-                )
-                st.plotly_chart(fig, width="stretch")
+                st.metric("Predicted incident grade", predicted_grade)
+
+                # Severity mapping
+                if predicted_grade == "TruePositive":
+                    severity = "HIGH"
+                    st.error("🚨 Severity: **HIGH** (Real Attack - Immediate Action Required)")
+                elif predicted_grade == "BenignPositive":
+                    severity = "MEDIUM"
+                    st.warning("⚠️ Severity: **MEDIUM** (Harmless Benign Activity)")
+                elif predicted_grade == "FalsePositive":
+                    severity = "LOW"
+                    st.info("🟢 Severity: **LOW** (False Alarm - Safe to Close)")
+                else:
+                    severity = "UNKNOWN"
+
+                # Class probabilities chart
+                if "probabilities" in result and isinstance(result["probabilities"], dict):
+                    probs = pd.DataFrame({
+                        "Class": list(result["probabilities"].keys()),
+                        "Probability": list(result["probabilities"].values())
+                    })
+                    fig = px.bar(
+                        probs, x="Class", y="Probability", color="Class",
+                        title="Class probabilities", template="plotly_dark"
+                    )
+                    fig.update_layout(
+                        paper_bgcolor="#0b1728",
+                        plot_bgcolor="#0b1728",
+                        showlegend=False,
+                        yaxis_range=[0, 1]
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
 
                 if "IncidentGrade" in record_df.columns:
                     actual = record_df["IncidentGrade"].iloc[0]
                     if pd.notna(actual):
-                        st.caption(f"Actual grade in the test file: {actual}")
+                        st.caption(f"Actual grade in the test file: **{actual}**")
 
-                st.caption(
-                    "This is a demo prediction for one record, "
-                    "not a performance evaluation."
-                )
+                # Append to session state history
+                st.session_state["history"].append({
+                    "Timestamp": datetime.now().strftime("%H:%M:%S"),
+                    "Record #": int(index),
+                    "Category": str(clean_record.get("Category", "N/A")),
+                    "Predicted Grade": predicted_grade,
+                    "Severity": severity,
+                    "Latency (ms)": res["ms"]
+                })
+
             else:
                 st.error(f"API request failed: {res['error']}")
+
+    # Prediction History Table
+    st.divider()
+    st.markdown("### 📋 Prediction History")
+    if st.session_state.get("history"):
+        hist_df = pd.DataFrame(st.session_state["history"][::-1])
+        st.dataframe(hist_df, use_container_width=True, hide_index=True)
+        if st.button("🗑️ Clear Prediction History"):
+            st.session_state["history"] = []
+            st.rerun()
+    else:
+        st.info("No predictions recorded in this session yet.")
 
 # ==============================================================================
 # Page 4: API Monitor
 # ==============================================================================
 elif page == "API Monitor":
     st.markdown("### API Monitor")
-    st.caption("Live inspection of FastAPI endpoints, interactive requests, and call logs.")
+    st.caption("Live inspection of Flask REST API endpoints, interactive requests, and call logs.")
 
-    # 3.g Show clear error with exact startup command if API is offline
     if not api_online:
         st.error(
-            "Backend API is offline. Open a new terminal and run: "
-            "python -m uvicorn api:app --port 8000"
+            "Backend API is offline. Open a terminal and run: "
+            "python api.py"
         )
 
-    # 3.a Four metric cards: API status, Base URL, Model loaded, Number of endpoints
+    # Metric cards: API status, Base URL, Model loaded, Number of endpoints
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("API status", "online" if api_online else "offline")
     c2.metric("Base URL", API_URL)
     c3.metric("Model loaded", "yes" if (health_data.get("model_loaded")) else "no")
-    c4.metric("Number of endpoints", "5")
+    c4.metric("Number of endpoints", "4")
 
-    # 3.b Table of all endpoints
+    # Check API Connection Button
+    if st.button("🔄 Check API Connection"):
+        st.rerun()
+
+    # Table of all endpoints
     st.markdown("#### Endpoints")
     endpoints_df = pd.DataFrame([
-        {"Method": "GET", "Path": "/health", "Purpose": "Check whether API is running and model is loaded"},
+        {"Method": "GET", "Path": "/health", "Purpose": "Check whether Flask API is running and model is loaded"},
         {"Method": "GET", "Path": "/metrics", "Purpose": "Return model comparison and evaluation metrics"},
         {"Method": "POST", "Path": "/predict", "Purpose": "Take an incident record and return predicted grade and probabilities"},
-        {"Method": "GET", "Path": "/logs", "Purpose": "Return recorded calls as JSON, newest first"},
-        {"Method": "GET", "Path": "/docs", "Purpose": "Interactive Swagger UI documentation"},
+        {"Method": "GET", "Path": "/logs", "Purpose": "Return recorded backend requests as JSON, newest first"},
     ])
-    st.dataframe(endpoints_df, width="stretch", hide_index=True)
+    st.dataframe(endpoints_df, use_container_width=True, hide_index=True)
 
-    # 3.c Button to open Swagger docs
-    st.link_button("Open Swagger docs", f"{API_URL}/docs")
+    # Explanation of architecture
+    st.markdown("#### Architecture & Data Flow")
+    st.markdown("""
+    - **Streamlit Frontend:** Sends HTTP requests using Python `requests` library.
+    - **Flask Backend API:** Listens on `http://127.0.0.1:8000`, processes input, and runs inference using the saved Scikit-learn model.
+    - **Machine Learning Model:** Loaded from `models/random_forest.joblib` to produce incident grade classifications.
+    """)
 
-    # 3.d Try the API section with three parts
+    # Try the API section
     st.markdown("### Try the API")
 
     # Part 1: GET /health
@@ -447,7 +494,7 @@ elif page == "API Monitor":
         if m_res["data"] is not None:
             st.json(m_res["data"])
             if isinstance(m_res["data"], list):
-                st.dataframe(pd.DataFrame(m_res["data"]), width="stretch", hide_index=True)
+                st.dataframe(pd.DataFrame(m_res["data"]), use_container_width=True, hide_index=True)
         else:
             st.error(f"Error: {m_res['error']}")
 
@@ -467,7 +514,10 @@ elif page == "API Monitor":
         sample_record_df = test_samples.iloc[[int(selected_idx)]]
 
         if st.button("Send to API", key="try_predict_btn", type="primary"):
-            record_payload = {"record": json.loads(sample_record_df.to_json(orient="records"))[0]}
+            raw_rec = sample_record_df.iloc[0].to_dict()
+            clean_rec = {k: v for k, v in raw_rec.items() if pd.notna(v)}
+            record_payload = {"record": clean_rec}
+
             p_res = call_api("POST", "/predict", json_body=record_payload)
             st.session_state["try_predict_req_body"] = record_payload
             st.session_state["try_predict_response"] = p_res
@@ -492,29 +542,29 @@ elif page == "API Monitor":
     else:
         st.error("GUIDE_Test.csv was not found in dataset folder.")
 
-    # 3.e Table "Calls made by the dashboard" from st.session_state["api_calls"] (newest first)
+    # Table: Calls made by the dashboard
     st.markdown("### Calls made by the dashboard")
     st.caption("All API calls initiated by this Streamlit session (newest first).")
     calls = st.session_state.get("api_calls", [])
     if calls:
         dashboard_logs_df = pd.DataFrame(calls[::-1])
-        st.dataframe(dashboard_logs_df, width="stretch", hide_index=True)
+        st.dataframe(dashboard_logs_df, use_container_width=True, hide_index=True)
     else:
         st.info("No dashboard API calls recorded yet.")
 
-    # 3.f Table "Requests received by the backend" fetched from GET /logs with Refresh button
+    # Table: Requests received by the backend
     st.markdown("### Requests received by the backend")
-    st.caption("Requests recorded in-memory by FastAPI middleware (newest first).")
+    st.caption("Requests recorded in-memory by Flask backend (newest first).")
 
-    if st.button("Refresh", key="btn_refresh_backend_logs"):
-        pass  # Clicking triggers Streamlit rerun and re-fetches GET /logs
+    if st.button("Refresh Backend Logs", key="btn_refresh_backend_logs"):
+        pass
 
     backend_logs_res = call_api("GET", "/logs")
     if backend_logs_res["ok"] and isinstance(backend_logs_res["data"], list):
         backend_logs = backend_logs_res["data"]
         if backend_logs:
             backend_logs_df = pd.DataFrame(backend_logs)
-            st.dataframe(backend_logs_df, width="stretch", hide_index=True)
+            st.dataframe(backend_logs_df, use_container_width=True, hide_index=True)
         else:
             st.info("No requests received by the backend yet.")
     else:
@@ -557,9 +607,9 @@ elif page == "Incident Explorer":
                     paper_bgcolor="#0b1728",
                     plot_bgcolor="#0b1728"
                 )
-                st.plotly_chart(fig, width="stretch")
+                st.plotly_chart(fig, use_container_width=True)
 
-            st.dataframe(sample, width="stretch", hide_index=True)
+            st.dataframe(sample, use_container_width=True, hide_index=True)
             st.caption(
                 "This is only a small preview of the training file, "
                 "not a live security feed."
@@ -579,23 +629,23 @@ elif page == "About Project":
 
     st.markdown("#### Architecture")
     st.markdown("""
-    - **Frontend:** Streamlit dashboard (`app.py`)
-    - **Backend:** FastAPI service (`api.py`) with endpoints `/health`, `/metrics`, `/predict`, `/logs`
-    - **ML layer:** scikit-learn pipelines saved with joblib (`main.py` trains them)
+    - **Frontend:** Streamlit dashboard (`app.py`) with rich analytics and API monitoring.
+    - **Backend:** Flask REST API (`api.py`) with endpoints `/health`, `/metrics`, `/predict`, `/logs`.
+    - **ML layer:** Scikit-learn pipelines saved with Joblib (`main.py` trains them).
     - The frontend sends a record as JSON to `/predict`; the backend loads the saved model and returns the predicted grade and class probabilities.
     """)
 
     st.markdown("#### Models")
     st.markdown("""
-    - **Random Forest:** main trained model
-    - **Logistic Regression:** baseline comparison model
+    - **Random Forest:** main trained model (84.02% accuracy, 0.841 F1)
+    - **Logistic Regression:** baseline comparison model (83.50% accuracy, 0.838 F1)
     """)
 
     st.markdown("#### Prediction labels")
     st.markdown("""
-    - `BenignPositive`
-    - `FalsePositive`
-    - `TruePositive`
+    - `BenignPositive`: Harmless event (Medium Severity)
+    - `FalsePositive`: False alarm (Low Severity)
+    - `TruePositive`: Real security threat (High Severity)
     """)
 
     st.warning(

@@ -33,7 +33,7 @@ To build a machine learning system that predicts the grade of a security inciden
 
 1. **Training pipeline (`main.py`):** loading, cleaning, feature preparation, group-wise split, training of both models, evaluation, charts and saving of models and reports.
 2. **Prediction script (`predict.py`):** loads the saved Random Forest and predicts one record from the test file.
-3. **Backend API (`api.py`, FastAPI):** endpoints `/health`, `/metrics` and `/predict`.
+3. **Backend API (`api.py`, Flask):** endpoints `/health`, `/metrics`, `/predict`, and `/logs`.
 4. **Frontend dashboard (`app.py`, Streamlit):** Overview, Model Analytics, Live Prediction, Incident Explorer and About pages. The dashboard calls the API for metrics and predictions.
 5. **Documentation:** README, testing report and this progress report.
 
@@ -53,7 +53,7 @@ Random Forest is the selected model, with a small lead. These are results from o
 | Change | Reason |
 |---|---|
 | Sample of 50,000 rows instead of a 3% sample (about 285,000 rows) | To keep memory use and training time manageable on a laptop |
-| A REST API (FastAPI) and a Streamlit dashboard were added | They were not in the proposal. They make the model usable by a front end and show how deployment works |
+| A REST API (Flask) and a Streamlit dashboard were added | They were not in the proposal. They make the model usable by a front end and show how deployment works |
 | Model saved as `.joblib` instead of `.pkl` | joblib is the usual way to save scikit-learn models |
 | `StandardScaler` instead of a robust scaler | Simpler, and sufficient for this prototype |
 | One group-wise split instead of cross-validation | To keep the project simple. Cross-validation is planned as future work |
@@ -90,7 +90,7 @@ This is an individual project. All work was done by the student:
 - Wrote the preprocessing and the training pipeline
 - Found and fixed the data leakage problem and the identifier column problem
 - Trained and evaluated the Logistic Regression and Random Forest models
-- Built the FastAPI backend and the Streamlit dashboard and connected them
+- Built the Flask REST API backend and the Streamlit dashboard and connected them
 - Tested the system and wrote the documentation
 
 ## 10. Conclusion

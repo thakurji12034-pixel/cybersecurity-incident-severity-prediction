@@ -1,26 +1,26 @@
 
-Logistic Regression
-=============================================
-                precision    recall  f1-score   support
-
-BenignPositive       0.87      0.85      0.86      4093
- FalsePositive       0.68      0.85      0.76      2235
-  TruePositive       0.93      0.81      0.86      3522
-
-      accuracy                           0.84      9850
-     macro avg       0.83      0.84      0.83      9850
-  weighted avg       0.85      0.84      0.84      9850
-
-
 Random Forest
 =============================================
                 precision    recall  f1-score   support
 
-BenignPositive       0.85      0.90      0.87      4093
- FalsePositive       0.75      0.82      0.79      2235
-  TruePositive       0.92      0.80      0.86      3522
+BenignPositive       0.79      0.94      0.86      4498
+ FalsePositive       0.83      0.61      0.70      2104
+  TruePositive       0.83      0.76      0.79      3260
 
-      accuracy                           0.85      9850
-     macro avg       0.84      0.84      0.84      9850
-  weighted avg       0.85      0.85      0.85      9850
+      accuracy                           0.81      9862
+     macro avg       0.82      0.77      0.78      9862
+  weighted avg       0.81      0.81      0.80      9862
+
+
+Logistic Regression
+=============================================
+                precision    recall  f1-score   support
+
+BenignPositive       0.93      0.91      0.92      4498
+ FalsePositive       0.81      0.87      0.84      2104
+  TruePositive       0.93      0.90      0.91      3260
+
+      accuracy                           0.90      9862
+     macro avg       0.89      0.89      0.89      9862
+  weighted avg       0.90      0.90      0.90      9862
 

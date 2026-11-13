@@ -12,7 +12,7 @@ To check that the training pipeline, the prediction API and the dashboard work c
 |---|---|
 | Language | Python 3.14 |
 | ML libraries | pandas, NumPy, scikit-learn, joblib, matplotlib, seaborn |
-| Backend | FastAPI, served with Uvicorn on port 8000 |
+| Backend | Flask REST API, served on port 8000 |
 | Frontend | Streamlit on port 8501, charts with Plotly |
 | Dataset | Microsoft GUIDE Security Incident Prediction |
 | Training file size | 9,516,837 rows |
